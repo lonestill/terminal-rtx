@@ -1,5 +1,60 @@
 use std::io::{self, Write};
 
+#[inline(always)]
+fn push_u16(buf: &mut Vec<u8>, mut val: u16) {
+    if val == 0 {
+        buf.push(b'0');
+        return;
+    }
+    let mut temp = [0u8; 5];
+    let mut idx = 0;
+    while val > 0 {
+        temp[idx] = b'0' + (val % 10) as u8;
+        val /= 10;
+        idx += 1;
+    }
+    while idx > 0 {
+        idx -= 1;
+        buf.push(temp[idx]);
+    }
+}
+
+#[inline(always)]
+fn push_u8(buf: &mut Vec<u8>, val: u8) {
+    if val >= 100 {
+        buf.push(b'0' + val / 100);
+        buf.push(b'0' + (val / 10) % 10);
+        buf.push(b'0' + val % 10);
+    } else if val >= 10 {
+        buf.push(b'0' + val / 10);
+        buf.push(b'0' + val % 10);
+    } else {
+        buf.push(b'0' + val);
+    }
+}
+
+#[inline(always)]
+fn push_fg(buf: &mut Vec<u8>, r: u8, g: u8, b: u8) {
+    buf.extend_from_slice(b"\x1b[38;2;");
+    push_u8(buf, r);
+    buf.push(b';');
+    push_u8(buf, g);
+    buf.push(b';');
+    push_u8(buf, b);
+    buf.push(b'm');
+}
+
+#[inline(always)]
+fn push_bg(buf: &mut Vec<u8>, r: u8, g: u8, b: u8) {
+    buf.extend_from_slice(b"\x1b[48;2;");
+    push_u8(buf, r);
+    buf.push(b';');
+    push_u8(buf, g);
+    buf.push(b';');
+    push_u8(buf, b);
+    buf.push(b'm');
+}
+
 pub struct TerminalRenderer {
     buffer: Vec<u8>,
 }
@@ -7,7 +62,7 @@ pub struct TerminalRenderer {
 impl TerminalRenderer {
     pub fn new() -> Self {
         Self {
-            buffer: Vec::with_capacity(128 * 1024),
+            buffer: Vec::with_capacity(256 * 1024),
         }
     }
 
@@ -16,41 +71,38 @@ impl TerminalRenderer {
         writer: &mut W,
         pixels: &[u32],
         width: usize,
-        height: usize,
+        canvas_rows: usize,
         hud_text: &str,
     ) -> io::Result<()> {
         self.buffer.clear();
+        self.buffer.extend_from_slice(b"\x1b[?2025h");
 
-        self.buffer.extend_from_slice(b"[H");
-
-        let term_rows = height / 2;
+        self.buffer.extend_from_slice(b"\x1b[1;1H\x1b[0m\x1b[1;30;46m ");
+        let max_hud_chars = width.saturating_sub(2);
+        let mut char_count = 0;
+        for c in hud_text.chars() {
+            if char_count >= max_hud_chars {
+                break;
+            }
+            let mut b = [0u8; 4];
+            self.buffer.extend_from_slice(c.encode_utf8(&mut b).as_bytes());
+            char_count += 1;
+        }
+        self.buffer.extend_from_slice(b" \x1b[0m\x1b[K");
 
         let mut last_fg = 0xffffffffu32;
         let mut last_bg = 0xffffffffu32;
 
-        for row in 0..term_rows {
-            if row == 0 && !hud_text.is_empty() {
-                self.buffer.extend_from_slice(b"[0m[1;30;46m ");
-                let max_len = width.saturating_sub(2);
-                let truncated = if hud_text.len() > max_len {
-                    &hud_text[..max_len]
-                } else {
-                    hud_text
-                };
-                self.buffer.extend_from_slice(truncated.as_bytes());
-                for _ in 0..max_len.saturating_sub(hud_text.len()) {
-                    self.buffer.push(b' ');
-                }
-                self.buffer.extend_from_slice(b" [0m
-");
-                last_fg = 0xffffffff;
-                last_bg = 0xffffffff;
-                continue;
-            }
+        let height = canvas_rows * 2;
 
-            let y_top = row * 2;
+        for row_idx in 0..canvas_rows {
+            let term_line = (row_idx + 2) as u16;
+            self.buffer.extend_from_slice(b"\x1b[");
+            push_u16(&mut self.buffer, term_line);
+            self.buffer.extend_from_slice(b";1H");
+
+            let y_top = row_idx * 2;
             let y_bot = y_top + 1;
-
             let row_top_offset = y_top * width;
             let row_bot_offset = y_bot * width;
 
@@ -62,35 +114,39 @@ impl TerminalRenderer {
                     0
                 };
 
-                let fg_rgb = px_top & 0x00ffffff;
-                let bg_rgb = px_bot & 0x00ffffff;
+                let fg_rgb = px_top & 0x00f8f8f8;
+                let bg_rgb = px_bot & 0x00f8f8f8;
 
-                if fg_rgb != last_fg {
-                    let r = (fg_rgb & 0xff) as u8;
-                    let g = ((fg_rgb >> 8) & 0xff) as u8;
-                    let b = ((fg_rgb >> 16) & 0xff) as u8;
-                    write!(self.buffer, "[38;2;{};{};{}m", r, g, b)?;
-                    last_fg = fg_rgb;
+                if fg_rgb == bg_rgb {
+                    if bg_rgb != last_bg {
+                        let r = (bg_rgb & 0xff) as u8;
+                        let g = ((bg_rgb >> 8) & 0xff) as u8;
+                        let b = ((bg_rgb >> 16) & 0xff) as u8;
+                        push_bg(&mut self.buffer, r, g, b);
+                        last_bg = bg_rgb;
+                    }
+                    self.buffer.push(b' ');
+                } else {
+                    if fg_rgb != last_fg {
+                        let r = (fg_rgb & 0xff) as u8;
+                        let g = ((fg_rgb >> 8) & 0xff) as u8;
+                        let b = ((fg_rgb >> 16) & 0xff) as u8;
+                        push_fg(&mut self.buffer, r, g, b);
+                        last_fg = fg_rgb;
+                    }
+                    if bg_rgb != last_bg {
+                        let r = (bg_rgb & 0xff) as u8;
+                        let g = ((bg_rgb >> 8) & 0xff) as u8;
+                        let b = ((bg_rgb >> 16) & 0xff) as u8;
+                        push_bg(&mut self.buffer, r, g, b);
+                        last_bg = bg_rgb;
+                    }
+                    self.buffer.extend_from_slice("▀".as_bytes());
                 }
-
-                if bg_rgb != last_bg {
-                    let r = (bg_rgb & 0xff) as u8;
-                    let g = ((bg_rgb >> 8) & 0xff) as u8;
-                    let b = ((bg_rgb >> 16) & 0xff) as u8;
-                    write!(self.buffer, "[48;2;{};{};{}m", r, g, b)?;
-                    last_bg = bg_rgb;
-                }
-
-                self.buffer.extend_from_slice("▀".as_bytes());
-            }
-
-            if row + 1 < term_rows {
-                self.buffer.extend_from_slice(b"
-");
             }
         }
 
-        self.buffer.extend_from_slice(b"[0m");
+        self.buffer.extend_from_slice(b"\x1b[0m\x1b[?2025l");
         writer.write_all(&self.buffer)?;
         writer.flush()?;
         Ok(())
