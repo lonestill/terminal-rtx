@@ -10,6 +10,7 @@ struct RtxUniforms {
     uint32_t height;
     float time;
     uint32_t scene_id;
+    uint32_t quality_mode;
 };
 
 static inline float3 rotate_y(float3 p, float a) {
@@ -119,7 +120,7 @@ static inline float2 map_scene(float3 p, uint32_t scene_id, float time) {
 }
 
 static inline float3 calc_normal(float3 p, uint32_t scene_id, float time) {
-    float2 e = float2(0.002f, 0.0f);
+    float2 e = float2(0.0015f, 0.0f);
     return normalize(float3(
         map_scene(p + e.xyy, scene_id, time).x - map_scene(p - e.xyy, scene_id, time).x,
         map_scene(p + e.yxy, scene_id, time).x - map_scene(p - e.yxy, scene_id, time).x,
@@ -130,11 +131,11 @@ static inline float3 calc_normal(float3 p, uint32_t scene_id, float time) {
 static inline float calc_soft_shadow(float3 ro, float3 rd, float mint, float maxt, float k, uint32_t scene_id, float time) {
     float res = 1.0f;
     float t = mint;
-    for (int i = 0; i < 24; ++i) {
+    for (int i = 0; i < 28; ++i) {
         float h = map_scene(ro + rd * t, scene_id, time).x;
         res = min(res, k * h / t);
         t += clamp(h, 0.02f, 0.2f);
-        if (res < 0.05f || t > maxt) break;
+        if (res < 0.02f || t > maxt) break;
     }
     return clamp(res, 0.0f, 1.0f);
 }
@@ -142,13 +143,13 @@ static inline float calc_soft_shadow(float3 ro, float3 rd, float mint, float max
 static inline float calc_ao(float3 p, float3 n, uint32_t scene_id, float time) {
     float occ = 0.0f;
     float sca = 1.0f;
-    for (int i = 0; i < 5; ++i) {
-        float h = 0.01f + 0.12f * (float)i / 4.0f;
+    for (int i = 0; i < 6; ++i) {
+        float h = 0.01f + 0.15f * (float)i / 5.0f;
         float d = map_scene(p + h * n, scene_id, time).x;
         occ += (h - d) * sca;
-        sca *= 0.9f;
+        sca *= 0.88f;
     }
-    return clamp(1.0f - 2.5f * occ, 0.0f, 1.0f);
+    return clamp(1.0f - 2.8f * occ, 0.0f, 1.0f);
 }
 
 static inline float3 shade_surface(
@@ -163,35 +164,43 @@ static inline float3 shade_surface(
     uint32_t scene_id,
     float time
 ) {
-    if (mat == 3.0f) return float3(0.1f, 0.8f, 1.5f);
-    if (mat == 4.0f) return float3(1.5f, 0.1f, 0.8f);
+    if (mat == 3.0f) {
+        float stripe = smoothstep(0.15f, 0.25f, abs(sin(p.y * 5.0f + time * 2.0f)));
+        return mix(float3(0.05f, 0.12f, 0.2f), float3(0.3f, 2.2f, 3.2f), stripe);
+    }
+    if (mat == 4.0f) {
+        float stripe = smoothstep(0.15f, 0.25f, abs(sin(p.y * 5.0f - time * 2.0f)));
+        return mix(float3(0.2f, 0.05f, 0.12f), float3(3.2f, 0.3f, 2.2f), stripe);
+    }
 
     float3 base_col = float3(0.8f);
     float metallic = 0.0f;
     float roughness = 0.3f;
 
     if (mat == 1.0f) {
-        float check = fmod(floor(p.x) + floor(p.z), 2.0f);
-        base_col = (check == 0.0f) ? float3(0.08f, 0.08f, 0.12f) : float3(0.35f, 0.35f, 0.45f);
-        metallic = 0.6f;
-        roughness = 0.2f;
+        float2 tile = abs(fract(p.xz * 0.5f) - 0.5f);
+        float seam = smoothstep(0.015f, 0.04f, min(tile.x, tile.y));
+        float checker = fmod(floor(p.x * 0.5f) + floor(p.z * 0.5f), 2.0f);
+        base_col = mix(float3(0.02f, 0.02f, 0.03f), (checker == 0.0f ? float3(0.12f, 0.13f, 0.16f) : float3(0.26f, 0.27f, 0.32f)), seam);
+        metallic = 0.8f;
+        roughness = mix(0.45f, 0.1f, seam);
     } else if (mat == 2.0f) {
-        base_col = float3(0.95f, 0.75f, 0.25f);
-        metallic = 0.9f;
-        roughness = 0.15f;
-    } else if (mat == 5.0f) {
-        base_col = float3(0.8f, 0.85f, 0.95f);
+        base_col = float3(1.0f, 0.82f, 0.32f);
         metallic = 0.95f;
-        roughness = 0.1f;
+        roughness = 0.08f;
+    } else if (mat == 5.0f) {
+        base_col = float3(0.92f, 0.95f, 1.0f);
+        metallic = 0.98f;
+        roughness = 0.04f;
     } else if (mat == 6.0f) {
         float d_center = length(p);
         base_col = float3(
-            0.5f + 0.5f * sin(d_center * 4.0f + time),
-            0.5f + 0.5f * sin(d_center * 4.0f + 2.0f + time),
-            0.5f + 0.5f * sin(d_center * 4.0f + 4.0f + time)
+            0.5f + 0.5f * sin(d_center * 3.5f + time * 0.4f),
+            0.5f + 0.5f * sin(d_center * 3.5f + 2.09f + time * 0.4f),
+            0.5f + 0.5f * sin(d_center * 3.5f + 4.18f + time * 0.4f)
         );
-        metallic = 0.2f;
-        roughness = 0.5f;
+        metallic = 0.35f;
+        roughness = 0.35f;
     }
 
     float ao = calc_ao(p, n, scene_id, time);
@@ -199,27 +208,112 @@ static inline float3 shade_surface(
     float3 l1_dir = light1_pos - p;
     float l1_dist = length(l1_dir);
     l1_dir /= max(l1_dist, 0.001f);
-    float l1_att = 1.0f / (1.0f + 0.2f * l1_dist + 0.1f * l1_dist * l1_dist);
+    float l1_att = 1.0f / (1.0f + 0.15f * l1_dist + 0.08f * l1_dist * l1_dist);
     float l1_diff = max(dot(n, l1_dir), 0.0f);
     float l1_shadow = (l1_diff > 0.0f) ? calc_soft_shadow(p + n * 0.01f, l1_dir, 0.02f, l1_dist, 8.0f, scene_id, time) : 0.0f;
     float3 h1 = normalize(l1_dir - rd);
-    float l1_spec = pow(max(dot(n, h1), 0.0f), 32.0f) * (1.0f - roughness);
+    float l1_spec = pow(max(dot(n, h1), 0.0f), (1.0f - roughness) * 48.0f + 8.0f);
 
     float3 l2_dir = light2_pos - p;
     float l2_dist = length(l2_dir);
     l2_dir /= max(l2_dist, 0.001f);
-    float l2_att = 1.0f / (1.0f + 0.2f * l2_dist + 0.1f * l2_dist * l2_dist);
+    float l2_att = 1.0f / (1.0f + 0.15f * l2_dist + 0.08f * l2_dist * l2_dist);
     float l2_diff = max(dot(n, l2_dir), 0.0f);
     float l2_shadow = (l2_diff > 0.0f) ? calc_soft_shadow(p + n * 0.01f, l2_dir, 0.02f, l2_dist, 8.0f, scene_id, time) : 0.0f;
     float3 h2 = normalize(l2_dir - rd);
-    float l2_spec = pow(max(dot(n, h2), 0.0f), 32.0f) * (1.0f - roughness);
+    float l2_spec = pow(max(dot(n, h2), 0.0f), (1.0f - roughness) * 48.0f + 8.0f);
 
-    float3 ambient = float3(0.04f, 0.05f, 0.08f) * ao;
+    float3 ambient = float3(0.03f, 0.04f, 0.07f) * ao;
     float3 light_diffuse = (light1_col * l1_diff * l1_att * l1_shadow + light2_col * l2_diff * l2_att * l2_shadow);
     float3 light_spec = (light1_col * l1_spec * l1_att * l1_shadow + light2_col * l2_spec * l2_att * l2_shadow);
 
     float3 result = ambient * base_col + light_diffuse * base_col * (1.0f - metallic) + light_spec;
     return result;
+}
+
+static inline float3 tonemap_aces(float3 x) {
+    float a = 2.51f;
+    float b = 0.03f;
+    float c = 2.43f;
+    float d = 0.59f;
+    float e = 0.14f;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0f, 1.0f);
+}
+
+static inline float3 trace_ray(
+    float3 ro,
+    float3 rd,
+    float3 light1_pos,
+    float3 light1_col,
+    float3 light2_pos,
+    float3 light2_col,
+    uint32_t scene_id,
+    float time
+) {
+    float t = 0.0f;
+    float mat = 0.0f;
+    bool hit = false;
+    float3 volumetric = float3(0.0f);
+
+    for (int i = 0; i < 85; ++i) {
+        float3 p = ro + rd * t;
+        float2 res = map_scene(p, scene_id, time);
+
+        float3 v1 = light1_pos - p;
+        float3 v2 = light2_pos - p;
+        volumetric += light1_col * (0.0008f / (dot(v1, v1) + 0.12f));
+        volumetric += light2_col * (0.0008f / (dot(v2, v2) + 0.12f));
+
+        if (res.x < 0.0015f) {
+            hit = true;
+            mat = res.y;
+            break;
+        }
+        t += res.x;
+        if (t > 30.0f) break;
+    }
+
+    float3 col = float3(0.015f, 0.02f, 0.04f) + float3(0.015f, 0.035f, 0.07f) * max(-rd.y, 0.0f) + volumetric;
+
+    if (hit) {
+        float3 p = ro + rd * t;
+        float3 n = calc_normal(p, scene_id, time);
+        col = shade_surface(p, n, rd, mat, light1_pos, light1_col, light2_pos, light2_col, scene_id, time) + volumetric;
+
+        if (mat == 1.0f || mat == 2.0f || mat == 5.0f) {
+            float f0 = (mat == 5.0f || mat == 2.0f) ? 0.85f : 0.08f;
+            float cos_t = clamp(dot(n, -rd), 0.0f, 1.0f);
+            float fresnel = f0 + (1.0f - f0) * pow(1.0f - cos_t, 5.0f);
+
+            float3 r_rd = reflect(rd, n);
+            float3 r_ro = p + n * 0.012f;
+            float r_t = 0.0f;
+            float r_mat = 0.0f;
+            bool r_hit = false;
+
+            for (int j = 0; j < 40; ++j) {
+                float3 rp = r_ro + r_rd * r_t;
+                float2 r_res = map_scene(rp, scene_id, time);
+                if (r_res.x < 0.002f) {
+                    r_hit = true;
+                    r_mat = r_res.y;
+                    break;
+                }
+                r_t += r_res.x;
+                if (r_t > 22.0f) break;
+            }
+
+            float3 refl_col = float3(0.015f, 0.025f, 0.05f);
+            if (r_hit) {
+                float3 rp = r_ro + r_rd * r_t;
+                float3 rn = calc_normal(rp, scene_id, time);
+                refl_col = shade_surface(rp, rn, r_rd, r_mat, light1_pos, light1_col, light2_pos, light2_col, scene_id, time);
+            }
+            col = mix(col, refl_col, fresnel);
+        }
+    }
+
+    return col;
 }
 
 kernel void rtx_render(
@@ -236,79 +330,61 @@ kernel void rtx_render(
     float x = (float)id.x;
     float y = (float)id.y;
 
-    float uv_x = (2.0f * x - w) / h;
-    float uv_y = (h - 2.0f * y) / h;
-
     float3 cam_pos = float3(uniforms.cam_pos[0], uniforms.cam_pos[1], uniforms.cam_pos[2]);
     float3 cam_dir = float3(uniforms.cam_dir[0], uniforms.cam_dir[1], uniforms.cam_dir[2]);
     float3 cam_up = float3(uniforms.cam_up[0], uniforms.cam_up[1], uniforms.cam_up[2]);
     float3 cam_right = float3(uniforms.cam_right[0], uniforms.cam_right[1], uniforms.cam_right[2]);
 
-    float3 rd = normalize(cam_dir + uv_x * cam_right * 0.8f + uv_y * cam_up * 0.8f);
-    float3 ro = cam_pos;
-
     float time = uniforms.time;
     uint32_t scene_id = uniforms.scene_id;
+    uint32_t quality = uniforms.quality_mode;
 
     float3 light1_pos = float3(sin(time * 0.9f) * 2.5f, 1.8f, cos(time * 0.9f) * 2.5f);
-    float3 light1_col = float3(0.2f, 0.8f, 1.2f);
+    float3 light1_col = float3(0.25f, 1.1f, 1.6f);
 
     float3 light2_pos = float3(sin(time * 0.8f + 3.14f) * 2.5f, 1.5f, cos(time * 0.8f + 3.14f) * 2.5f);
-    float3 light2_col = float3(1.2f, 0.2f, 0.8f);
+    float3 light2_col = float3(1.6f, 0.25f, 1.1f);
 
-    float t = 0.0f;
-    float mat = 0.0f;
-    bool hit = false;
-    for (int i = 0; i < 75; ++i) {
-        float3 p = ro + rd * t;
-        float2 res = map_scene(p, scene_id, time);
-        if (res.x < 0.002f) {
-            hit = true;
-            mat = res.y;
-            break;
+    float3 col = float3(0.0f);
+
+    if (quality == 0) {
+        float2 offsets[4] = {
+            float2(-0.25f, -0.25f),
+            float2( 0.25f, -0.25f),
+            float2(-0.25f,  0.25f),
+            float2( 0.25f,  0.25f)
+        };
+        for (int s = 0; s < 4; ++s) {
+            float sx = x + offsets[s].x;
+            float sy = y + offsets[s].y;
+            float uv_x = (2.0f * sx - w) / h;
+            float uv_y = (h - 2.0f * sy) / h;
+            float3 rd = normalize(cam_dir + uv_x * cam_right * 0.8f + uv_y * cam_up * 0.8f);
+            col += trace_ray(cam_pos, rd, light1_pos, light1_col, light2_pos, light2_col, scene_id, time);
         }
-        t += res.x;
-        if (t > 30.0f) break;
+        col *= 0.25f;
+    } else if (quality == 1) {
+        float2 offsets[2] = {
+            float2(-0.25f,  0.25f),
+            float2( 0.25f, -0.25f)
+        };
+        for (int s = 0; s < 2; ++s) {
+            float sx = x + offsets[s].x;
+            float sy = y + offsets[s].y;
+            float uv_x = (2.0f * sx - w) / h;
+            float uv_y = (h - 2.0f * sy) / h;
+            float3 rd = normalize(cam_dir + uv_x * cam_right * 0.8f + uv_y * cam_up * 0.8f);
+            col += trace_ray(cam_pos, rd, light1_pos, light1_col, light2_pos, light2_col, scene_id, time);
+        }
+        col *= 0.5f;
+    } else {
+        float uv_x = (2.0f * x - w) / h;
+        float uv_y = (h - 2.0f * y) / h;
+        float3 rd = normalize(cam_dir + uv_x * cam_right * 0.8f + uv_y * cam_up * 0.8f);
+        col = trace_ray(cam_pos, rd, light1_pos, light1_col, light2_pos, light2_col, scene_id, time);
     }
 
-    float3 col = float3(0.02f, 0.02f, 0.04f) + float3(0.02f, 0.04f, 0.08f) * max(-rd.y, 0.0f);
-
-    if (hit) {
-        float3 p = ro + rd * t;
-        float3 n = calc_normal(p, scene_id, time);
-        col = shade_surface(p, n, rd, mat, light1_pos, light1_col, light2_pos, light2_col, scene_id, time);
-
-        if (mat == 1.0f || mat == 2.0f || mat == 5.0f) {
-            float reflectivity = (mat == 5.0f) ? 0.85f : ((mat == 2.0f) ? 0.7f : 0.4f);
-            float3 r_rd = reflect(rd, n);
-            float3 r_ro = p + n * 0.015f;
-            float r_t = 0.0f;
-            float r_mat = 0.0f;
-            bool r_hit = false;
-
-            for (int j = 0; j < 35; ++j) {
-                float3 rp = r_ro + r_rd * r_t;
-                float2 r_res = map_scene(rp, scene_id, time);
-                if (r_res.x < 0.003f) {
-                    r_hit = true;
-                    r_mat = r_res.y;
-                    break;
-                }
-                r_t += r_res.x;
-                if (r_t > 20.0f) break;
-            }
-
-            float3 refl_col = float3(0.02f, 0.03f, 0.05f);
-            if (r_hit) {
-                float3 rp = r_ro + r_rd * r_t;
-                float3 rn = calc_normal(rp, scene_id, time);
-                refl_col = shade_surface(rp, rn, r_rd, r_mat, light1_pos, light1_col, light2_pos, light2_col, scene_id, time);
-            }
-            col = mix(col, refl_col, reflectivity);
-        }
-    }
-
-    col = col / (col + float3(1.0f));
+    col = tonemap_aces(col);
     col = pow(col, float3(1.0f / 2.2f));
 
     uint32_t ir = (uint32_t)clamp(col.r * 255.0f, 0.0f, 255.0f);

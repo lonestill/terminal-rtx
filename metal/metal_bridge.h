@@ -16,6 +16,7 @@ typedef struct {
     uint32_t height;
     float time;
     uint32_t scene_id;
+    uint32_t quality_mode;
 } RtxUniforms;
 
 int metal_rtx_init(const char* msl_source);

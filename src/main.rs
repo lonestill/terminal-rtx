@@ -49,6 +49,7 @@ fn main() -> io::Result<()> {
     let mut renderer = TerminalRenderer::new();
 
     let mut scene_id = 0u32;
+    let mut quality_mode = 0u32;
     let mut last_frame = Instant::now();
     let start_time = Instant::now();
 
@@ -98,6 +99,9 @@ fn main() -> io::Result<()> {
                             KeyCode::Char('1') => scene_id = 0,
                             KeyCode::Char('2') => scene_id = 1,
                             KeyCode::Char('3') => scene_id = 2,
+                            KeyCode::Char('t') | KeyCode::Char('T') | KeyCode::Tab => {
+                                quality_mode = (quality_mode + 1) % 3;
+                            }
                             _ => {}
                         }
                     }
@@ -133,6 +137,7 @@ fn main() -> io::Result<()> {
                 height: height as u32,
                 time,
                 scene_id,
+                quality_mode,
             };
 
             let scene_name = match scene_id {
@@ -141,18 +146,24 @@ fn main() -> io::Result<()> {
                 _ => "Infinite Chrome Spheres",
             };
 
-            let hud = if width >= 115 {
+            let q_name = match quality_mode {
+                0 => "ULTRA 4x",
+                1 => "HIGH 2x",
+                _ => "FAST 1x",
+            };
+
+            let hud = if width >= 120 {
                 format!(
-                    "TERMINAL-RTX :: {:.1} FPS | [{}] | Pos: {:.1}, {:.1}, {:.1} | [WASD] Move [Arrows] Look [1-3] Scene [Q] Quit",
-                    current_fps, scene_name, camera.pos[0], camera.pos[1], camera.pos[2]
+                    "TERMINAL-RTX :: {:.1} FPS | [{}] | [{}] | Pos: {:.1}, {:.1}, {:.1} | [WASD] Move [T] Quality [1-3] Scene [Q] Quit",
+                    current_fps, scene_name, q_name, camera.pos[0], camera.pos[1], camera.pos[2]
                 )
-            } else if width >= 75 {
+            } else if width >= 80 {
                 format!(
-                    "RTX :: {:.1} FPS | [{}] | [WASD] Move [1-3] Scene [Q] Quit",
-                    current_fps, scene_name
+                    "RTX :: {:.1} FPS | [{}] | [{}] | [T] Quality [1-3] Scene [Q] Quit",
+                    current_fps, scene_name, q_name
                 )
             } else {
-                format!("RTX :: {:.1} FPS | [{}] | [Q] Quit", current_fps, scene_name)
+                format!("RTX :: {:.1} FPS | [{}] | [{}] | [Q] Quit", current_fps, scene_name, q_name)
             };
 
             if let Some(pixels) = metal.render(&uniforms) {

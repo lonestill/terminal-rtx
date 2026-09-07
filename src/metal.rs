@@ -11,6 +11,7 @@ pub struct RtxUniforms {
     pub height: u32,
     pub time: f32,
     pub scene_id: u32,
+    pub quality_mode: u32,
 }
 
 extern "C" {
