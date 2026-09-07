@@ -45,6 +45,9 @@ fn main() -> io::Result<()> {
 
     let mut renderer = TerminalRenderer::new();
 
+    let args: Vec<String> = std::env::args().collect();
+    let mut fullscreen = args.iter().any(|a| a == "--full" || a == "--fullscreen" || a == "-f");
+
     let mut scene_id = 0u32;
     let mut quality_mode = 0u32;
     let mut show_hud = true;
@@ -56,6 +59,7 @@ fn main() -> io::Result<()> {
     let mut frame_count = 0u32;
     let mut fps_timer = Instant::now();
     let mut current_fps = 60.0f32;
+    let mut last_term_size = size()?;
 
     let target_frame_dur = Duration::from_micros(16667);
 
@@ -85,6 +89,10 @@ fn main() -> io::Result<()> {
                             KeyCode::Char('2') => scene_id = 1,
                             KeyCode::Char('3') => scene_id = 2,
                             KeyCode::Char(' ') => paused = !paused,
+                            KeyCode::Char('f') | KeyCode::Char('F') => {
+                                fullscreen = !fullscreen;
+                                let _ = execute!(out, Clear(ClearType::All));
+                            }
                             KeyCode::Char('h') | KeyCode::Char('H') => {
                                 show_hud = !show_hud;
                                 let _ = execute!(out, Clear(ClearType::All));
@@ -98,14 +106,25 @@ fn main() -> io::Result<()> {
                 }
             }
 
-            let (cols, rows) = size()?;
-            let view_w = (cols as usize).min(112).max(20);
-            let view_rows = (rows as usize).saturating_sub(if show_hud { 2 } else { 1 }).min(36).max(5);
-            let canvas_rows = view_rows;
-            let height = canvas_rows * 2;
+            let term_size = size()?;
+            if term_size != last_term_size {
+                let _ = execute!(out, Clear(ClearType::All));
+                last_term_size = term_size;
+            }
 
-            let left_pad = ((cols as usize).saturating_sub(view_w)) / 2;
-            let top_pad = ((rows as usize).saturating_sub(canvas_rows + if show_hud { 1 } else { 0 })) / 2;
+            let (cols, rows) = term_size;
+            let (view_w, canvas_rows, left_pad, top_pad) = if fullscreen {
+                let w = cols as usize;
+                let h_rows = (rows as usize).saturating_sub(if show_hud { 2 } else { 1 }).max(5);
+                (w, h_rows, 0, 0)
+            } else {
+                let w = (cols as usize).min(112).max(20);
+                let h_rows = (rows as usize).saturating_sub(if show_hud { 2 } else { 1 }).min(36).max(5);
+                let lp = ((cols as usize).saturating_sub(w)) / 2;
+                let tp = ((rows as usize).saturating_sub(h_rows + if show_hud { 1 } else { 0 })) / 2;
+                (w, h_rows, lp, tp)
+            };
+            let height = canvas_rows * 2;
 
             let (cam_pos, cam_target) = match scene_id {
                 0 => {
@@ -174,8 +193,10 @@ fn main() -> io::Result<()> {
                 _ => "FAST 1x",
             };
 
+            let mode_name = if fullscreen { "FULL" } else { "16:9" };
+
             let hud = if show_hud {
-                format!(" RTX {:.0} FPS  │  {}  │  {}  │  [Space] Pause  [H] Hide", current_fps, scene_name, q_name)
+                format!(" RTX {:.0} FPS  │  {}  │  {}  │  {}  │  [Space] Pause  [F] Mode  [H] Hide", current_fps, scene_name, q_name, mode_name)
             } else {
                 String::new()
             };

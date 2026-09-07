@@ -43,6 +43,13 @@ Or using the helper script:
 ./run.sh
 ```
 
+To render across the entire terminal at full resolution:
+
+```bash
+./run.sh --full
+# or: cargo run --release -- -f
+```
+
 ## Controls
 
 | Key | Action |
@@ -50,6 +57,7 @@ Or using the helper script:
 | `Space` | Pause / resume camera orbit rotation |
 | `1` / `2` / `3` | Switch scene (`1: Hall`, `2: Mandelbulb`, `3: Spheres`) |
 | `T` / `Tab` | Cycle quality mode (`ULTRA 4x` -> `HIGH 2x` -> `FAST 1x`) |
+| `F` | Toggle fullscreen mode (full resolution vs 16:9 cinematic) |
 | `H` | Toggle status HUD visibility (full clean screen recording) |
 | `Q` / `Esc` | Terminate engine |
 
