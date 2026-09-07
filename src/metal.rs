@@ -1,18 +1,5 @@
 use std::ffi::CString;
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct RtxUniforms {
-    pub cam_pos: [f32; 3],
-    pub cam_dir: [f32; 3],
-    pub cam_up: [f32; 3],
-    pub cam_right: [f32; 3],
-    pub width: u32,
-    pub height: u32,
-    pub time: f32,
-    pub scene_id: u32,
-    pub quality_mode: u32,
-}
+use crate::uniforms::RtxUniforms;
 
 extern "C" {
     fn metal_rtx_init(msl_source: *const std::os::raw::c_char) -> i32;

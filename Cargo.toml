@@ -2,12 +2,15 @@
 name = "terminal-rtx"
 version = "0.1.0"
 edition = "2021"
-description = "Real-time 3D raymarching engine for terminal emulators using Rust and Apple Silicon Metal"
+description = "Real-time 3D raymarching engine for terminal emulators using Rust, Metal, and Vulkan (wgpu)"
 license = "MIT"
 repository = "https://github.com/lonestill/terminal-rtx"
 
 [dependencies]
 crossterm = "0.29.0"
+wgpu = "30.0.1"
+pollster = "1.0.1"
+bytemuck = { version = "1.16", features = ["derive"] }
 
 [build-dependencies]
 cc = "1.0"

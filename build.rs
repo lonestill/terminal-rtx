@@ -12,4 +12,5 @@ fn main() {
         println!("cargo:rerun-if-changed=metal/metal_bridge.h");
         println!("cargo:rerun-if-changed=metal/rtx.metal");
     }
+    println!("cargo:rerun-if-changed=shaders/rtx.wgsl");
 }

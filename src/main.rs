@@ -1,5 +1,8 @@
+#[cfg(target_os = "macos")]
 mod metal;
 mod renderer;
+mod uniforms;
+mod wgpu_rtx;
 
 use std::io::{self, stdout, Write};
 use std::panic;
@@ -12,8 +15,35 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use metal::{MetalRtx, RtxUniforms};
+#[cfg(target_os = "macos")]
+use metal::MetalRtx;
 use renderer::TerminalRenderer;
+use uniforms::RtxUniforms;
+use wgpu_rtx::WgpuRtx;
+
+enum Engine {
+    #[cfg(target_os = "macos")]
+    Metal(MetalRtx),
+    Wgpu(WgpuRtx),
+}
+
+impl Engine {
+    fn render(&mut self, uniforms: &RtxUniforms) -> Option<&[u32]> {
+        match self {
+            #[cfg(target_os = "macos")]
+            Engine::Metal(m) => m.render(uniforms),
+            Engine::Wgpu(w) => w.render(uniforms),
+        }
+    }
+
+    fn name(&self) -> &str {
+        match self {
+            #[cfg(target_os = "macos")]
+            Engine::Metal(_) => "Metal",
+            Engine::Wgpu(w) => &w.adapter_name,
+        }
+    }
+}
 
 fn restore_terminal() {
     let _ = disable_raw_mode();
@@ -23,10 +53,33 @@ fn restore_terminal() {
 }
 
 fn main() -> io::Result<()> {
-    let mut metal = match MetalRtx::init() {
-        Some(m) => m,
-        None => {
-            eprintln!("Metal initialization failed. Apple Silicon GPU required.");
+    let args: Vec<String> = std::env::args().collect();
+    let mut fullscreen = args.iter().any(|a| a == "--full" || a == "--fullscreen" || a == "-f");
+    let force_wgpu = args.iter().any(|a| a == "--wgpu" || a == "-w" || a == "--vulkan");
+
+    let mut engine: Engine = {
+        #[cfg(target_os = "macos")]
+        if !force_wgpu {
+            if let Some(m) = MetalRtx::init() {
+                Engine::Metal(m)
+            } else if let Some(w) = WgpuRtx::init() {
+                Engine::Wgpu(w)
+            } else {
+                eprintln!("GPU initialization failed. Metal and WGPU unavailable.");
+                return Ok(());
+            }
+        } else if let Some(w) = WgpuRtx::init() {
+            Engine::Wgpu(w)
+        } else {
+            eprintln!("WGPU initialization failed.");
+            return Ok(());
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        if let Some(w) = WgpuRtx::init() {
+            Engine::Wgpu(w)
+        } else {
+            eprintln!("GPU initialization failed. Vulkan / WGPU compatible GPU required.");
             return Ok(());
         }
     };
@@ -44,9 +97,6 @@ fn main() -> io::Result<()> {
     let _ = out.flush();
 
     let mut renderer = TerminalRenderer::new();
-
-    let args: Vec<String> = std::env::args().collect();
-    let mut fullscreen = args.iter().any(|a| a == "--full" || a == "--fullscreen" || a == "-f");
 
     let mut scene_id = 0u32;
     let mut quality_mode = 0u32;
@@ -196,12 +246,12 @@ fn main() -> io::Result<()> {
             let mode_name = if fullscreen { "FULL" } else { "16:9" };
 
             let hud = if show_hud {
-                format!(" RTX {:.0} FPS  │  {}  │  {}  │  {}  │  [Space] Pause  [F] Mode  [H] Hide", current_fps, scene_name, q_name, mode_name)
+                format!(" RTX {:.0} FPS  │  {}  │  {}  │  {}  │  {}  │  [Space] Pause  [F] Mode  [H] Hide", current_fps, engine.name(), scene_name, q_name, mode_name)
             } else {
                 String::new()
             };
 
-            if let Some(pixels) = metal.render(&uniforms) {
+            if let Some(pixels) = engine.render(&uniforms) {
                 renderer.render_frame(&mut out, pixels, view_w, canvas_rows, left_pad, top_pad, &hud)?;
             }
 
