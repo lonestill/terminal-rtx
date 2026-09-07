@@ -72,13 +72,21 @@ impl TerminalRenderer {
         pixels: &[u32],
         width: usize,
         canvas_rows: usize,
+        left_pad: usize,
+        top_pad: usize,
         hud_text: &str,
     ) -> io::Result<()> {
         self.buffer.clear();
         self.buffer.extend_from_slice(b"\x1b[?2025h");
 
         let start_row = if !hud_text.is_empty() {
-            self.buffer.extend_from_slice(b"\x1b[1;1H\x1b[0m\x1b[48;2;16;18;24m\x1b[38;2;220;225;235m ");
+            let hud_line = (top_pad + 1) as u16;
+            let hud_col = (left_pad + 1) as u16;
+            self.buffer.extend_from_slice(b"\x1b[");
+            push_u16(&mut self.buffer, hud_line);
+            self.buffer.push(b';');
+            push_u16(&mut self.buffer, hud_col);
+            self.buffer.extend_from_slice(b"H\x1b[0m\x1b[48;2;16;18;24m\x1b[38;2;220;225;235m ");
             let max_hud_chars = width.saturating_sub(2);
             let mut char_count = 0;
             for c in hud_text.chars() {
@@ -89,11 +97,17 @@ impl TerminalRenderer {
                 self.buffer.extend_from_slice(c.encode_utf8(&mut b).as_bytes());
                 char_count += 1;
             }
-            self.buffer.extend_from_slice(b" \x1b[0m\x1b[K");
-            2u16
+            while char_count < max_hud_chars {
+                self.buffer.push(b' ');
+                char_count += 1;
+            }
+            self.buffer.extend_from_slice(b" \x1b[0m");
+            (top_pad + 2) as u16
         } else {
-            1u16
+            (top_pad + 1) as u16
         };
+
+        let term_col = (left_pad + 1) as u16;
 
         let mut last_fg = 0xffffffffu32;
         let mut last_bg = 0xffffffffu32;
@@ -104,7 +118,9 @@ impl TerminalRenderer {
             let term_line = start_row + row_idx as u16;
             self.buffer.extend_from_slice(b"\x1b[");
             push_u16(&mut self.buffer, term_line);
-            self.buffer.extend_from_slice(b";1H");
+            self.buffer.push(b';');
+            push_u16(&mut self.buffer, term_col);
+            self.buffer.extend_from_slice(b"H");
 
             let y_top = row_idx * 2;
             let y_bot = y_top + 1;

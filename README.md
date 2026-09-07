@@ -47,13 +47,10 @@ Or using the helper script:
 
 | Key | Action |
 |---|---|
-| `W` / `A` / `S` / `D` | Translate camera forward / left / backward / right |
-| `Space` / `C` (or `E`) | Ascend / Descend |
-| `Left` / `Right` | Yaw camera rotation |
-| `Up` / `Down` | Pitch camera rotation |
-| `H` | Toggle status HUD visibility |
-| `T` / `Tab` | Cycle quality mode (`ULTRA 4x` -> `HIGH 2x` -> `FAST 1x`) |
+| `Space` | Pause / resume camera orbit rotation |
 | `1` / `2` / `3` | Switch scene (`1: Hall`, `2: Mandelbulb`, `3: Spheres`) |
+| `T` / `Tab` | Cycle quality mode (`ULTRA 4x` -> `HIGH 2x` -> `FAST 1x`) |
+| `H` | Toggle status HUD visibility (full clean screen recording) |
 | `Q` / `Esc` | Terminate engine |
 
 ## Performance

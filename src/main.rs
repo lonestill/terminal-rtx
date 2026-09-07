@@ -1,4 +1,3 @@
-mod camera;
 mod metal;
 mod renderer;
 
@@ -10,17 +9,16 @@ use crossterm::{
     cursor::{Hide, Show},
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, size, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{disable_raw_mode, enable_raw_mode, size, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use camera::Camera;
 use metal::{MetalRtx, RtxUniforms};
 use renderer::TerminalRenderer;
 
 fn restore_terminal() {
     let _ = disable_raw_mode();
     let mut out = stdout();
-    let _ = out.write_all(b"\x1b[?2025l\x1b[?7h\x1b[?25h\x1b[0m");
+    let _ = out.write_all(b"\x1b[?2025l\x1b[?7h\x1b[?25h\x1b[0m\x1b[2J");
     let _ = execute!(out, Show, LeaveAlternateScreen);
 }
 
@@ -41,18 +39,19 @@ fn main() -> io::Result<()> {
 
     enable_raw_mode()?;
     let mut out = stdout();
-    execute!(out, EnterAlternateScreen, Hide)?;
-    let _ = out.write_all(b"\x1b[?7l");
+    execute!(out, EnterAlternateScreen, Hide, Clear(ClearType::All))?;
+    let _ = out.write_all(b"\x1b[?7l\x1b[2J\x1b[H");
     let _ = out.flush();
 
-    let mut camera = Camera::new();
     let mut renderer = TerminalRenderer::new();
 
     let mut scene_id = 0u32;
     let mut quality_mode = 0u32;
     let mut show_hud = true;
-    let mut last_frame = Instant::now();
-    let start_time = Instant::now();
+    let mut paused = false;
+
+    let mut sim_time = 0.0f32;
+    let mut last_instant = Instant::now();
 
     let mut frame_count = 0u32;
     let mut fps_timer = Instant::now();
@@ -63,8 +62,12 @@ fn main() -> io::Result<()> {
     let res = (|| -> io::Result<()> {
         loop {
             let now = Instant::now();
-            let dt = now.duration_since(last_frame).as_secs_f32().min(0.1);
-            last_frame = now;
+            let dt = now.duration_since(last_instant).as_secs_f32().min(0.05);
+            last_instant = now;
+
+            if !paused {
+                sim_time += dt;
+            }
 
             frame_count += 1;
             if fps_timer.elapsed() >= Duration::from_secs(1) {
@@ -73,34 +76,19 @@ fn main() -> io::Result<()> {
                 fps_timer = Instant::now();
             }
 
-            let move_step = (3.5f32 * dt).max(0.01);
-            let rot_step = (2.4f32 * dt).max(0.01);
-
-            let mut move_fwd = 0.0f32;
-            let mut move_side = 0.0f32;
-            let mut move_vert = 0.0f32;
-            let mut rot_yaw = 0.0f32;
-            let mut rot_pitch = 0.0f32;
-
             while event::poll(Duration::from_millis(0))? {
                 if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat {
+                    if key.kind == KeyEventKind::Press {
                         match key.code {
                             KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('Q') => return Ok(()),
-                            KeyCode::Char('w') | KeyCode::Char('W') => move_fwd += 1.0,
-                            KeyCode::Char('s') | KeyCode::Char('S') => move_fwd -= 1.0,
-                            KeyCode::Char('a') | KeyCode::Char('A') => move_side -= 1.0,
-                            KeyCode::Char('d') | KeyCode::Char('D') => move_side += 1.0,
-                            KeyCode::Char(' ') | KeyCode::Char('e') | KeyCode::Char('E') => move_vert += 1.0,
-                            KeyCode::Char('c') | KeyCode::Char('C') => move_vert -= 1.0,
-                            KeyCode::Left => rot_yaw -= 1.0,
-                            KeyCode::Right => rot_yaw += 1.0,
-                            KeyCode::Up => rot_pitch += 1.0,
-                            KeyCode::Down => rot_pitch -= 1.0,
                             KeyCode::Char('1') => scene_id = 0,
                             KeyCode::Char('2') => scene_id = 1,
                             KeyCode::Char('3') => scene_id = 2,
-                            KeyCode::Char('h') | KeyCode::Char('H') => show_hud = !show_hud,
+                            KeyCode::Char(' ') => paused = !paused,
+                            KeyCode::Char('h') | KeyCode::Char('H') => {
+                                show_hud = !show_hud;
+                                let _ = execute!(out, Clear(ClearType::All));
+                            }
                             KeyCode::Char('t') | KeyCode::Char('T') | KeyCode::Tab => {
                                 quality_mode = (quality_mode + 1) % 3;
                             }
@@ -110,38 +98,66 @@ fn main() -> io::Result<()> {
                 }
             }
 
-            if move_fwd != 0.0 {
-                camera.move_forward(move_fwd.clamp(-1.0, 1.0) * move_step);
-            }
-            if move_side != 0.0 {
-                camera.move_right(move_side.clamp(-1.0, 1.0) * move_step);
-            }
-            if move_vert != 0.0 {
-                camera.move_up(move_vert.clamp(-1.0, 1.0) * move_step);
-            }
-            if rot_yaw != 0.0 || rot_pitch != 0.0 {
-                camera.rotate(rot_yaw.clamp(-1.0, 1.0) * rot_step, rot_pitch.clamp(-1.0, 1.0) * rot_step);
-            }
-
             let (cols, rows) = size()?;
-            let width = (cols as usize).max(20);
-            let canvas_rows = if show_hud {
-                (rows as usize).saturating_sub(1).max(5)
-            } else {
-                (rows as usize).max(5)
-            };
+            let view_w = (cols as usize).min(112).max(20);
+            let view_rows = (rows as usize).saturating_sub(if show_hud { 2 } else { 1 }).min(36).max(5);
+            let canvas_rows = view_rows;
             let height = canvas_rows * 2;
 
-            let time = start_time.elapsed().as_secs_f32();
+            let left_pad = ((cols as usize).saturating_sub(view_w)) / 2;
+            let top_pad = ((rows as usize).saturating_sub(canvas_rows + if show_hud { 1 } else { 0 })) / 2;
+
+            let (cam_pos, cam_target) = match scene_id {
+                0 => {
+                    let angle = sim_time * 0.45;
+                    let radius = 2.35f32;
+                    let pos = [radius * angle.sin(), 0.65 + 0.12 * (sim_time * 0.25).sin(), -radius * angle.cos()];
+                    let target = [0.0f32, 0.18f32, 0.0f32];
+                    (pos, target)
+                }
+                1 => {
+                    let angle = sim_time * 0.32;
+                    let radius = 2.1f32;
+                    let pos = [radius * angle.sin(), 0.4 * (sim_time * 0.2).sin(), -radius * angle.cos()];
+                    let target = [0.0f32, 0.0f32, 0.0f32];
+                    (pos, target)
+                }
+                _ => {
+                    let angle = sim_time * 0.35;
+                    let radius = 2.6f32;
+                    let pos = [radius * angle.sin(), 0.65 + 0.15 * (sim_time * 0.2).sin(), -radius * angle.cos()];
+                    let target = [0.0f32, 0.1f32, 0.0f32];
+                    (pos, target)
+                }
+            };
+
+            let fwd = [cam_target[0] - cam_pos[0], cam_target[1] - cam_pos[1], cam_target[2] - cam_pos[2]];
+            let fwd_len = (fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]).sqrt().max(0.001);
+            let cam_dir = [fwd[0] / fwd_len, fwd[1] / fwd_len, fwd[2] / fwd_len];
+
+            let world_up = [0.0f32, 1.0f32, 0.0f32];
+            let right_raw = [
+                cam_dir[1] * world_up[2] - cam_dir[2] * world_up[1],
+                cam_dir[2] * world_up[0] - cam_dir[0] * world_up[2],
+                cam_dir[0] * world_up[1] - cam_dir[1] * world_up[0],
+            ];
+            let right_len = (right_raw[0] * right_raw[0] + right_raw[1] * right_raw[1] + right_raw[2] * right_raw[2]).sqrt().max(0.001);
+            let cam_right = [right_raw[0] / right_len, right_raw[1] / right_len, right_raw[2] / right_len];
+
+            let cam_up = [
+                cam_right[1] * cam_dir[2] - cam_right[2] * cam_dir[1],
+                cam_right[2] * cam_dir[0] - cam_right[0] * cam_dir[2],
+                cam_right[0] * cam_dir[1] - cam_right[1] * cam_dir[0],
+            ];
 
             let uniforms = RtxUniforms {
-                cam_pos: camera.pos,
-                cam_dir: camera.dir(),
-                cam_up: camera.up(),
-                cam_right: camera.right(),
-                width: width as u32,
+                cam_pos,
+                cam_dir,
+                cam_up,
+                cam_right,
+                width: view_w as u32,
                 height: height as u32,
-                time,
+                time: sim_time,
                 scene_id,
                 quality_mode,
             };
@@ -159,13 +175,13 @@ fn main() -> io::Result<()> {
             };
 
             let hud = if show_hud {
-                format!(" RTX {:.0} FPS  │  {}  │  {}  │  [H] hide", current_fps, scene_name, q_name)
+                format!(" RTX {:.0} FPS  │  {}  │  {}  │  [Space] Pause  [H] Hide", current_fps, scene_name, q_name)
             } else {
                 String::new()
             };
 
             if let Some(pixels) = metal.render(&uniforms) {
-                renderer.render_frame(&mut out, pixels, width, canvas_rows, &hud)?;
+                renderer.render_frame(&mut out, pixels, view_w, canvas_rows, left_pad, top_pad, &hud)?;
             }
 
             let elapsed_frame = now.elapsed();
