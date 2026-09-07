@@ -77,18 +77,23 @@ impl TerminalRenderer {
         self.buffer.clear();
         self.buffer.extend_from_slice(b"\x1b[?2025h");
 
-        self.buffer.extend_from_slice(b"\x1b[1;1H\x1b[0m\x1b[1;30;46m ");
-        let max_hud_chars = width.saturating_sub(2);
-        let mut char_count = 0;
-        for c in hud_text.chars() {
-            if char_count >= max_hud_chars {
-                break;
+        let start_row = if !hud_text.is_empty() {
+            self.buffer.extend_from_slice(b"\x1b[1;1H\x1b[0m\x1b[48;2;16;18;24m\x1b[38;2;220;225;235m ");
+            let max_hud_chars = width.saturating_sub(2);
+            let mut char_count = 0;
+            for c in hud_text.chars() {
+                if char_count >= max_hud_chars {
+                    break;
+                }
+                let mut b = [0u8; 4];
+                self.buffer.extend_from_slice(c.encode_utf8(&mut b).as_bytes());
+                char_count += 1;
             }
-            let mut b = [0u8; 4];
-            self.buffer.extend_from_slice(c.encode_utf8(&mut b).as_bytes());
-            char_count += 1;
-        }
-        self.buffer.extend_from_slice(b" \x1b[0m\x1b[K");
+            self.buffer.extend_from_slice(b" \x1b[0m\x1b[K");
+            2u16
+        } else {
+            1u16
+        };
 
         let mut last_fg = 0xffffffffu32;
         let mut last_bg = 0xffffffffu32;
@@ -96,7 +101,7 @@ impl TerminalRenderer {
         let height = canvas_rows * 2;
 
         for row_idx in 0..canvas_rows {
-            let term_line = (row_idx + 2) as u16;
+            let term_line = start_row + row_idx as u16;
             self.buffer.extend_from_slice(b"\x1b[");
             push_u16(&mut self.buffer, term_line);
             self.buffer.extend_from_slice(b";1H");
@@ -114,35 +119,24 @@ impl TerminalRenderer {
                     0
                 };
 
-                let fg_rgb = px_top & 0x00f8f8f8;
-                let bg_rgb = px_bot & 0x00f8f8f8;
+                let fg_rgb = px_top & 0x00ffffff;
+                let bg_rgb = px_bot & 0x00ffffff;
 
-                if fg_rgb == bg_rgb {
-                    if bg_rgb != last_bg {
-                        let r = (bg_rgb & 0xff) as u8;
-                        let g = ((bg_rgb >> 8) & 0xff) as u8;
-                        let b = ((bg_rgb >> 16) & 0xff) as u8;
-                        push_bg(&mut self.buffer, r, g, b);
-                        last_bg = bg_rgb;
-                    }
-                    self.buffer.push(b' ');
-                } else {
-                    if fg_rgb != last_fg {
-                        let r = (fg_rgb & 0xff) as u8;
-                        let g = ((fg_rgb >> 8) & 0xff) as u8;
-                        let b = ((fg_rgb >> 16) & 0xff) as u8;
-                        push_fg(&mut self.buffer, r, g, b);
-                        last_fg = fg_rgb;
-                    }
-                    if bg_rgb != last_bg {
-                        let r = (bg_rgb & 0xff) as u8;
-                        let g = ((bg_rgb >> 8) & 0xff) as u8;
-                        let b = ((bg_rgb >> 16) & 0xff) as u8;
-                        push_bg(&mut self.buffer, r, g, b);
-                        last_bg = bg_rgb;
-                    }
-                    self.buffer.extend_from_slice("▀".as_bytes());
+                if fg_rgb != last_fg {
+                    let r = (fg_rgb & 0xff) as u8;
+                    let g = ((fg_rgb >> 8) & 0xff) as u8;
+                    let b = ((fg_rgb >> 16) & 0xff) as u8;
+                    push_fg(&mut self.buffer, r, g, b);
+                    last_fg = fg_rgb;
                 }
+                if bg_rgb != last_bg {
+                    let r = (bg_rgb & 0xff) as u8;
+                    let g = ((bg_rgb >> 8) & 0xff) as u8;
+                    let b = ((bg_rgb >> 16) & 0xff) as u8;
+                    push_bg(&mut self.buffer, r, g, b);
+                    last_bg = bg_rgb;
+                }
+                self.buffer.extend_from_slice("▀".as_bytes());
             }
         }
 

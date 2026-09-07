@@ -253,35 +253,38 @@ static inline float3 trace_ray(
     float t = 0.0f;
     float mat = 0.0f;
     bool hit = false;
-    float3 volumetric = float3(0.0f);
 
-    for (int i = 0; i < 85; ++i) {
+    for (int i = 0; i < 75; ++i) {
         float3 p = ro + rd * t;
         float2 res = map_scene(p, scene_id, time);
-
-        float3 v1 = light1_pos - p;
-        float3 v2 = light2_pos - p;
-        volumetric += light1_col * (0.0008f / (dot(v1, v1) + 0.12f));
-        volumetric += light2_col * (0.0008f / (dot(v2, v2) + 0.12f));
-
         if (res.x < 0.0015f) {
             hit = true;
             mat = res.y;
             break;
         }
         t += res.x;
-        if (t > 30.0f) break;
+        if (t > 28.0f) break;
     }
 
-    float3 col = float3(0.015f, 0.02f, 0.04f) + float3(0.015f, 0.035f, 0.07f) * max(-rd.y, 0.0f) + volumetric;
+    float3 v1 = light1_pos - ro;
+    float proj1 = max(dot(v1, rd), 0.0f);
+    float d1 = length(light1_pos - (ro + rd * proj1));
+    float3 glow = light1_col * (0.025f / (d1 * d1 + 0.05f));
+
+    float3 v2 = light2_pos - ro;
+    float proj2 = max(dot(v2, rd), 0.0f);
+    float d2 = length(light2_pos - (ro + rd * proj2));
+    glow += light2_col * (0.025f / (d2 * d2 + 0.05f));
+
+    float3 col = float3(0.004f, 0.006f, 0.012f) + float3(0.008f, 0.015f, 0.03f) * max(-rd.y, 0.0f) + glow;
 
     if (hit) {
         float3 p = ro + rd * t;
         float3 n = calc_normal(p, scene_id, time);
-        col = shade_surface(p, n, rd, mat, light1_pos, light1_col, light2_pos, light2_col, scene_id, time) + volumetric;
+        col = shade_surface(p, n, rd, mat, light1_pos, light1_col, light2_pos, light2_col, scene_id, time);
 
         if (mat == 1.0f || mat == 2.0f || mat == 5.0f) {
-            float f0 = (mat == 5.0f || mat == 2.0f) ? 0.85f : 0.08f;
+            float f0 = (mat == 5.0f || mat == 2.0f) ? 0.9f : 0.06f;
             float cos_t = clamp(dot(n, -rd), 0.0f, 1.0f);
             float fresnel = f0 + (1.0f - f0) * pow(1.0f - cos_t, 5.0f);
 
@@ -291,7 +294,7 @@ static inline float3 trace_ray(
             float r_mat = 0.0f;
             bool r_hit = false;
 
-            for (int j = 0; j < 40; ++j) {
+            for (int j = 0; j < 32; ++j) {
                 float3 rp = r_ro + r_rd * r_t;
                 float2 r_res = map_scene(rp, scene_id, time);
                 if (r_res.x < 0.002f) {
@@ -300,10 +303,10 @@ static inline float3 trace_ray(
                     break;
                 }
                 r_t += r_res.x;
-                if (r_t > 22.0f) break;
+                if (r_t > 20.0f) break;
             }
 
-            float3 refl_col = float3(0.015f, 0.025f, 0.05f);
+            float3 refl_col = float3(0.008f, 0.012f, 0.025f);
             if (r_hit) {
                 float3 rp = r_ro + r_rd * r_t;
                 float3 rn = calc_normal(rp, scene_id, time);
@@ -340,10 +343,10 @@ kernel void rtx_render(
     uint32_t quality = uniforms.quality_mode;
 
     float3 light1_pos = float3(sin(time * 0.9f) * 2.5f, 1.8f, cos(time * 0.9f) * 2.5f);
-    float3 light1_col = float3(0.25f, 1.1f, 1.6f);
+    float3 light1_col = float3(0.3f, 1.2f, 1.8f);
 
     float3 light2_pos = float3(sin(time * 0.8f + 3.14f) * 2.5f, 1.5f, cos(time * 0.8f + 3.14f) * 2.5f);
-    float3 light2_col = float3(1.6f, 0.25f, 1.1f);
+    float3 light2_col = float3(1.8f, 0.3f, 1.2f);
 
     float3 col = float3(0.0f);
 
@@ -385,6 +388,7 @@ kernel void rtx_render(
     }
 
     col = tonemap_aces(col);
+    col = smoothstep(0.0f, 1.0f, col);
     col = pow(col, float3(1.0f / 2.2f));
 
     uint32_t ir = (uint32_t)clamp(col.r * 255.0f, 0.0f, 255.0f);

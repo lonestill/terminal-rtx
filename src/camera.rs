@@ -7,9 +7,9 @@ pub struct Camera {
 impl Camera {
     pub fn new() -> Self {
         Self {
-            pos: [0.0, 1.2, -3.8],
+            pos: [0.0, 0.75, -2.4],
             yaw: 1.57079,
-            pitch: -0.2,
+            pitch: -0.15,
         }
     }
 

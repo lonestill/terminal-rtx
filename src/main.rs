@@ -50,6 +50,7 @@ fn main() -> io::Result<()> {
 
     let mut scene_id = 0u32;
     let mut quality_mode = 0u32;
+    let mut show_hud = true;
     let mut last_frame = Instant::now();
     let start_time = Instant::now();
 
@@ -99,6 +100,7 @@ fn main() -> io::Result<()> {
                             KeyCode::Char('1') => scene_id = 0,
                             KeyCode::Char('2') => scene_id = 1,
                             KeyCode::Char('3') => scene_id = 2,
+                            KeyCode::Char('h') | KeyCode::Char('H') => show_hud = !show_hud,
                             KeyCode::Char('t') | KeyCode::Char('T') | KeyCode::Tab => {
                                 quality_mode = (quality_mode + 1) % 3;
                             }
@@ -123,7 +125,11 @@ fn main() -> io::Result<()> {
 
             let (cols, rows) = size()?;
             let width = (cols as usize).max(20);
-            let canvas_rows = (rows as usize).saturating_sub(1).max(5);
+            let canvas_rows = if show_hud {
+                (rows as usize).saturating_sub(1).max(5)
+            } else {
+                (rows as usize).max(5)
+            };
             let height = canvas_rows * 2;
 
             let time = start_time.elapsed().as_secs_f32();
@@ -141,9 +147,9 @@ fn main() -> io::Result<()> {
             };
 
             let scene_name = match scene_id {
-                0 => "Cyberpunk Mirror Hall",
-                1 => "Mandelbulb 3D Fractal",
-                _ => "Infinite Chrome Spheres",
+                0 => "1: Hall",
+                1 => "2: Mandelbulb",
+                _ => "3: Spheres",
             };
 
             let q_name = match quality_mode {
@@ -152,18 +158,10 @@ fn main() -> io::Result<()> {
                 _ => "FAST 1x",
             };
 
-            let hud = if width >= 120 {
-                format!(
-                    "TERMINAL-RTX :: {:.1} FPS | [{}] | [{}] | Pos: {:.1}, {:.1}, {:.1} | [WASD] Move [T] Quality [1-3] Scene [Q] Quit",
-                    current_fps, scene_name, q_name, camera.pos[0], camera.pos[1], camera.pos[2]
-                )
-            } else if width >= 80 {
-                format!(
-                    "RTX :: {:.1} FPS | [{}] | [{}] | [T] Quality [1-3] Scene [Q] Quit",
-                    current_fps, scene_name, q_name
-                )
+            let hud = if show_hud {
+                format!(" RTX {:.0} FPS  │  {}  │  {}  │  [H] hide", current_fps, scene_name, q_name)
             } else {
-                format!("RTX :: {:.1} FPS | [{}] | [{}] | [Q] Quit", current_fps, scene_name, q_name)
+                String::new()
             };
 
             if let Some(pixels) = metal.render(&uniforms) {
