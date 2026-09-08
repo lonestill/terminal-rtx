@@ -1,10 +1,12 @@
 # terminal-rtx
 
-Real-time 3D raymarching engine rendering directly to terminal emulators using Rust and Apple Silicon Metal Shading Language (MSL).
+Real-time 3D raymarching engine rendering directly to terminal emulators using Rust, Apple Silicon Metal, and cross-platform Vulkan compute via WebGPU (wgpu).
 
 ## Architecture
 
-- **Compute Pipeline**: Metal compute kernels evaluate signed distance fields (SDF) on Apple Silicon GPU using Unified Memory Architecture (`MTLResourceStorageModeShared`). Framebuffer pointers are accessed by the host runtime without PCIe copy overhead.
+- **Compute Pipeline**:
+  - **macOS**: Native Apple Silicon Metal compute pipeline using Unified Memory Architecture (`MTLResourceStorageModeShared`).
+  - **Linux / Cross-Platform**: Headless Vulkan compute pipeline (`wgpu` + WGSL) supporting AMD Radeon, Intel Arc, and Nvidia GeForce GPUs. Operates headlessly without X11 or Wayland window requirements, streaming raw TrueColor ANSI buffers straight to any terminal.
 - **Rendering**: Employs Unicode Half-Blocks (`\u{2580}`) where foreground and background ANSI 24-bit TrueColor codes double vertical terminal resolution (e.g. a 120x40 character terminal renders a 120x80 pixel viewport).
 - **Terminal I/O Optimization**:
   - Direct row addressing (`\x1b[{row};1H`) eliminates newline-induced terminal scrolling.
@@ -25,9 +27,13 @@ Real-time 3D raymarching engine rendering directly to terminal emulators using R
 
 ## Requirements
 
-- macOS 12.0+ running on Apple Silicon (M1/M2/M3/M4 or Pro/Max/Ultra).
-- Rust 1.70+.
-- Modern terminal emulator supporting 24-bit TrueColor (iTerm2, Terminal.app, Alacritty, Kitty, Ghostty, WezTerm).
+- **macOS**: macOS 12.0+ on Apple Silicon or Intel with Metal.
+- **Linux**: Any modern 64-bit Linux distribution with standard Vulkan drivers:
+  - **AMD Radeon**: `mesa-vulkan-drivers` (Ubuntu/Debian) or `vulkan-radeon` (Arch Linux).
+  - **Intel**: `mesa-vulkan-drivers` (Ubuntu/Debian) or `vulkan-intel` (Arch Linux).
+  - **Nvidia**: `nvidia-driver` with Vulkan support.
+- **Rust**: 1.70+.
+- Modern terminal emulator supporting 24-bit TrueColor (iTerm2, Terminal.app, Alacritty, Kitty, Ghostty, WezTerm, Foot).
 
 ## Build & Run
 
@@ -48,6 +54,13 @@ To render across the entire terminal at full resolution:
 ```bash
 ./run.sh --full
 # or: cargo run --release -- -f
+```
+
+To force the WGPU backend on macOS (testing cross-platform WGSL shader):
+
+```bash
+./run.sh --wgpu
+# or: cargo run --release -- -w
 ```
 
 ## Controls
